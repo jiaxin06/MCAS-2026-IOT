@@ -40,9 +40,9 @@
 </head>
 
 <body>
-    <h1>Python 控制的圖片輪播</h1>
+    <h1>Lab2 Python 控制的圖片輪播</h1>
     <p>目前第 {{ idx+1 }} 張 / 共 {{ total }} 張</p>
-    <img src="{{ url_for('static', filename=image) }}" alt="slide">
+    <img src="{{ url_for('static', filename='images/lab2_img1.png') }}" alt="slide">
     <div class="controls">
         <a href="{{ url_for('prev_img') }}"><button class="btn">上一張</button></a>
         <a href="{{ url_for('next_img') }}"><button class="btn">下一張</button></a>
