@@ -11,8 +11,8 @@ from flask import (
     session,
     url_for,
 )
-from google import genai
-
+# from google import genai
+from openai import OpenAI
 
 # =========================
 # Environment Variables
@@ -20,23 +20,42 @@ from google import genai
 
 load_dotenv()
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-SECRET_KEY = os.getenv("SECRET_KEY")
-GEMINI_MODEL = os.getenv(
-    "GEMINI_MODEL",
-    "gemini-3.8-flash",
+# GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+# SECRET_KEY = os.getenv("SECRET_KEY")
+# GEMINI_MODEL = os.getenv(
+#     "GEMINI_MODEL",
+#     "gemini-3.8-flash",
+# )
+
+# if not GEMINI_API_KEY:
+#     raise RuntimeError(
+#         "找不到 GEMINI_API_KEY，請先建立 .env 並填入 API Key。"
+#     )
+
+# if not SECRET_KEY or SECRET_KEY == "CHANGE_ME":
+#     raise RuntimeError(
+#         "請在 .env 設定安全的 SECRET_KEY。"
+#     )
+
+
+# Groq
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+GROQ_MODEL = os.getenv(
+    "GROQ_MODEL",
+    "openai/gpt-oss-120b",
 )
 
-if not GEMINI_API_KEY:
+if not GROQ_API_KEY:
     raise RuntimeError(
-        "找不到 GEMINI_API_KEY，請先建立 .env 並填入 API Key。"
+        "找不到 GROQ_API_KEY，請先在 .env 填入 Groq 的 API Key。"
     )
+
+SECRET_KEY = os.getenv("SECRET_KEY")
 
 if not SECRET_KEY or SECRET_KEY == "CHANGE_ME":
     raise RuntimeError(
         "請在 .env 設定安全的 SECRET_KEY。"
     )
-
 
 # =========================
 # Flask
@@ -53,44 +72,66 @@ USERS = {
 }
 
 
-# =========================
-# Gemini
-# =========================
+# # =========================
+# # Gemini
+# # =========================
 
-gemini_client = genai.Client(
-    api_key=GEMINI_API_KEY
+# gemini_client = genai.Client(
+#     api_key=GEMINI_API_KEY
+# )
+
+
+# def ask_gemini(
+#     message,
+#     previous_interaction_id=None,
+# ):
+#     params = {
+#         "model": GEMINI_MODEL,
+#         "input": message,
+#     }
+
+#     if previous_interaction_id:
+#         params["previous_interaction_id"] = (
+#             previous_interaction_id
+#         )
+
+#     interaction = (
+#         gemini_client.interactions.create(
+#             **params
+#         )
+#     )
+
+#     reply = (
+#         interaction.output_text or ""
+#     ).strip()
+
+#     if not reply:
+#         reply = "Gemini 沒有回傳文字內容。"
+
+#     return reply, interaction.id
+
+
+# openai SDK 初始化 Groq 端點
+groq_client = OpenAI(
+    api_key=GROQ_API_KEY,
+    base_url="https://api.groq.com/openai/v1",
 )
 
-
-def ask_gemini(
-    message,
-    previous_interaction_id=None,
-):
-    params = {
-        "model": GEMINI_MODEL,
-        "input": message,
-    }
-
-    if previous_interaction_id:
-        params["previous_interaction_id"] = (
-            previous_interaction_id
-        )
-
-    interaction = (
-        gemini_client.interactions.create(
-            **params
-        )
+def ask_groq(messages):
+    completion = groq_client.chat.completions.create(
+        model=GROQ_MODEL,
+        messages=messages,
+        temperature=0.7,
     )
 
     reply = (
-        interaction.output_text or ""
+        completion.choices[0].message.content or ""
     ).strip()
 
     if not reply:
-        reply = "Gemini 沒有回傳文字內容。"
+        reply = "Groq 沒有回傳文字內容。"
 
-    return reply, interaction.id
-
+    return reply
 
 # =========================
 # Login Required
@@ -214,40 +255,75 @@ def api_chat():
 
     try:
 
-        previous_id = session.get(
-            "gemini_interaction_id"
-        )
+        # previous_id = session.get(
+        #     "gemini_interaction_id"
+        # )
 
-        reply, interaction_id = (
-            ask_gemini(
-                message,
-                previous_id,
-            )
-        )
+        # reply, interaction_id = (
+        #     ask_gemini(
+        #         message,
+        #         previous_id,
+        #     )
+        # )
 
-        # 保存本次 interaction ID
-        # 下一輪即可延續對話
-        session[
-            "gemini_interaction_id"
-        ] = interaction_id
+        # # 保存本次 interaction ID
+        # # 下一輪即可延續對話
+        # session[
+        #     "gemini_interaction_id"
+        # ] = interaction_id
 
+
+        # Groq 多輪歷史對話維持邏輯
+        history = session.get("chat_history", [])
+
+        if not history:
+            history.append({
+                "role": "system",
+                "content": "你是一個專業且友善的繁體中文 AI 助手。"
+            })
+
+        history.append({
+            "role": "user",
+            "content": message
+        })
+
+        reply = ask_groq(history)
+
+        history.append({
+            "role": "assistant",
+            "content": reply
+        })
+
+        # 保留最近 10 次互動，避免 Client Cookie 超過 4KB 上限
+        if len(history) > 11:
+            history = [history[0]] + history[-10:]
+
+        session["chat_history"] = history
+        
         return jsonify({
             "reply": reply
         })
 
     except Exception as error:
 
-        print(
-            "[Gemini API Error]",
-            error,
-        )
+        # print(
+        #     "[Gemini API Error]",
+        #     error,
+        # )
+
+        # return jsonify({
+        #     "error":
+        #     "Gemini API 呼叫失敗，"
+        #     "請檢查 API Key、網路或模型設定。"
+        # }), 502
+
+        # Groq
+        print("[Groq API Error]", error)
 
         return jsonify({
             "error":
-            "Gemini API 呼叫失敗，"
-            "請檢查 API Key、網路或模型設定。"
+            "Groq API 呼叫失敗，請檢查 API Key、網路或模型設定。"
         }), 502
-
 
 # =========================
 # Reset Conversation
@@ -257,8 +333,14 @@ def api_chat():
 @login_required
 def reset_chat():
 
+    # session.pop(
+    #     "gemini_interaction_id",
+    #     None,
+    # )
+
+    # Groq
     session.pop(
-        "gemini_interaction_id",
+        "chat_history",
         None,
     )
 
